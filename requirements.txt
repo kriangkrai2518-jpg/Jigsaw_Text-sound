@@ -6,3 +6,7 @@ edge-tts
 gspread
 google-auth
 edge-tts
+streamlit
+edge-tts
+pandas
+openpyxl
