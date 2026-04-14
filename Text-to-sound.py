@@ -64,7 +64,7 @@ if uploaded_file is not None:
 
     # --- 5. ระบบรันอัตโนมัติ (ทันทีที่โหลด) ---
     if not st.session_state.get('auto_run_done', False):
-        with st.status("🚀 กำลังตกตะกอนเสียงให้พี่เกรียงอัตโนมัติ...", expanded=True) as status:
+        with st.status("🚀 กำลังตกตะกอนเสียงให้อัตโนมัติ...", expanded=True) as status:
             for i, row in df.iterrows():
                 f_name = str(row[name_col]).strip()
                 f_text = str(row[text_col]).strip()
