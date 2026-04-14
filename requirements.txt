@@ -52,3 +52,4 @@ watchdog==6.0.0
 gTTS
 gspread
 google-auth
+edge-tts
