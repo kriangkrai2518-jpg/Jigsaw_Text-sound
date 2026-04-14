@@ -53,3 +53,6 @@ gTTS
 gspread
 google-auth
 edge-tts
+gspread
+google-auth
+edge-tts
