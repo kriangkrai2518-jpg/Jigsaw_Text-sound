@@ -6,104 +6,84 @@ import pandas as pd
 import zipfile
 from io import BytesIO
 
-# --- 1. ระบบจัดการคำอ่าน (Dictionary) ---
+# --- 1. ระบบจัดการคำอ่าน ---
 def clean_text_for_ai(text):
-    # ปรับจูนคำอ่านให้ประณีตตามสไตล์เพจตกตะกอน
     pronunciation_map = {
-        "Python": "ไพ-ธอน", 
-        "Jigsaw": "จิก-ซอ",
-        "Branding": "แบรน-ดิ้ง", 
-        "ตกตะกอน": "ตก-ตะ-กอน", 
-        "AI": "เอ-ไอ"
+        "Python": "ไพ-ธอน", "Jigsaw": "จิก-ซอ",
+        "Branding": "แบรน-ดิ้ง", "ตกตะกอน": "ตก-ตะ-กอน", "AI": "เอ-ไอ"
     }
     for word, pronunciation in pronunciation_map.items():
         text = text.replace(str(word), str(pronunciation))
     return text
 
-# --- 2. ฟังก์ชันสร้างเสียงด้วย Edge-TTS (คุณภาพสูง) ---
+# --- 2. ฟังก์ชันสร้างเสียง ---
 async def generate_voice(text, voice, output_file):
     processed_text = clean_text_for_ai(text)
     communicate = edge_tts.Communicate(processed_text, voice)
     await communicate.save(output_file)
 
-# --- 3. ตั้งค่าหน้าตาเว็บ Streamlit ---
+# --- 3. หน้าตาเว็บ ---
 st.set_page_config(page_title="Toktagorn Audio Batch", page_icon="🎙️")
-st.title("🎙️ ตกตะกอน: Audio Batch Uploader")
-st.write("เลือกไฟล์ Excel หรือ CSV จากเครื่องเพื่อสร้างเสียงพร้อมกันหลายไฟล์")
+st.title("🎙️ ตกตะกอน: Flexible Audio Batch")
 
-# เมนูเลือกเสียง (ชาย/หญิง)
+# เมนูเลือกเสียง
 voice_options = {
-    "ผู้หญิง - นุ่มนวล (Premwadee)": "th-TH-PremwadeeNeural",
-    "ผู้ชาย - ทางการ (Niwat)": "th-TH-NiwatNeural",
-    "ผู้หญิง - เสียงใส (Achara)": "th-TH-AcharaNeural",
+    "ผู้หญิง - Premwadee": "th-TH-PremwadeeNeural",
+    "ผู้ชาย - Niwat": "th-TH-NiwatNeural",
 }
-selected_voice = st.selectbox("เลือกโทนเสียงที่ต้องการ:", list(voice_options.keys()))
+selected_voice = st.selectbox("เลือกเสียงที่ต้องการ:", list(voice_options.keys()))
 
-# --- 4. ส่วน Browse ไฟล์จาก PC ---
-uploaded_file = st.file_uploader("📂 เลือกไฟล์จากเครื่องของพี่ (Excel หรือ CSV):", type=['xlsx', 'csv'])
+# --- 4. ส่วน Browse ไฟล์ ---
+uploaded_file = st.file_uploader("📂 เลือกไฟล์ Excel หรือ CSV:", type=['xlsx', 'csv'])
 
 if uploaded_file is not None:
     try:
-        # ตรวจสอบนามสกุลไฟล์และอ่านข้อมูล
         if uploaded_file.name.endswith('.csv'):
             df = pd.read_csv(uploaded_file)
         else:
             df = pd.read_excel(uploaded_file)
         
-        st.success(f"โหลดไฟล์ '{uploaded_file.name}' สำเร็จ!")
-        st.write("---")
-        st.write("🔍 ตรวจสอบข้อมูล 5 แถวแรก:")
-        st.dataframe(df.head())
+        st.write("✅ โหลดไฟล์สำเร็จ! ตรวจสอบ Column ด้านล่าง:")
+        
+        # --- จุดเด่นใหม่: ให้พี่เลือก Column เองได้เลยถ้าชื่อไม่ตรง ---
+        all_columns = df.columns.tolist()
+        
+        col_name, col_text = st.columns(2)
+        with col_name:
+            # พยายามเดาชื่อ Column สำหรับ Sound Name
+            default_name_idx = all_columns.index('Sound Name') if 'Sound Name' in all_columns else 0
+            name_col = st.selectbox("เลือก Column สำหรับ 'ชื่อไฟล์':", all_columns, index=default_name_idx)
+            
+        with col_text:
+            # พยายามเดาชื่อ Column สำหรับ Text
+            default_text_idx = all_columns.index('text') if 'text' in all_columns else 0
+            text_col = st.selectbox("เลือก Column สำหรับ 'ข้อความที่พูด':", all_columns, index=default_text_idx)
 
-        # ปุ่มเริ่มทำงาน
         if st.button("🚀 เริ่มสร้างเสียง AI ทั้งหมด"):
-            # ตรวจสอบชื่อ Column (ต้องตรงกับใน Google Sheet ของพี่)
-            # จาก Image 3 ของพี่ Column ชื่อ 'Sound Name' และ 'text'
-            if 'Sound Name' in df.columns and 'text' in df.columns:
-                generated_files = []
-                progress_bar = st.progress(0)
-                status_text = st.empty()
+            generated_files = []
+            progress_bar = st.progress(0)
+            
+            for i, row in df.iterrows():
+                f_name = str(row[name_col]).strip()
+                f_text = str(row[text_col]).strip()
                 
-                for i, row in df.iterrows():
-                    f_name = str(row['Sound Name']).strip()
-                    f_text = str(row['text']).strip()
-                    
-                    if f_text and f_text != 'nan':
-                        output_filename = f"{f_name}.mp3"
-                        status_text.text(f"กำลังตกตะกอนเสียง: {output_filename}")
-                        
-                        # รันการสร้างเสียง
-                        asyncio.run(generate_voice(f_text, voice_options[selected_voice], output_filename))
-                        generated_files.append(output_filename)
-                    
-                    # อัปเดต Progress Bar
-                    progress_bar.progress((i + 1) / len(df))
+                if f_text and f_text != 'nan':
+                    output_filename = f"{f_name}.mp3"
+                    asyncio.run(generate_voice(f_text, voice_options[selected_voice], output_filename))
+                    generated_files.append(output_filename)
+                
+                progress_bar.progress((i + 1) / len(df))
 
-                # --- 5. การรวบรวมไฟล์เป็น ZIP ---
-                if generated_files:
-                    zip_buffer = BytesIO()
-                    with zipfile.ZipFile(zip_buffer, "w") as zf:
-                        for f in generated_files:
-                            if os.path.exists(f):
-                                zf.write(f)
-                                os.remove(f) # ลบไฟล์ออกจากระบบหลังรวมใส่ Zip เพื่อความสะอาด
-                    
-                    st.success(f"✅ สร้างเสร็จสมบูรณ์ทั้งหมด {len(generated_files)} ไฟล์!")
-                    
-                    # ปุ่มดาวน์โหลด
-                    st.download_button(
-                        label="📥 ดาวน์โหลดไฟล์เสียงทั้งหมด (ZIP)",
-                        data=zip_buffer.getvalue(),
-                        file_name="toktagorn_voices_pack.zip",
-                        mime="application/zip"
-                    )
-            else:
-                st.error("❌ ไม่พบ Column ชื่อ 'Sound Name' หรือ 'text' ในไฟล์ของพี่ครับ")
-                st.info("คำแนะนำ: โปรดเช็คตัวพิมพ์เล็ก-ใหญ่ในไฟล์ Excel ให้ตรงกับในโค้ดนะครับ")
+            if generated_files:
+                zip_buffer = BytesIO()
+                with zipfile.ZipFile(zip_buffer, "w") as zf:
+                    for f in generated_files:
+                        if os.path.exists(f):
+                            zf.write(f)
+                            os.remove(f)
+                
+                st.success(f"สร้างสำเร็จ {len(generated_files)} ไฟล์!")
+                st.download_button("📥 ดาวน์โหลด ZIP", zip_buffer.getvalue(), "voices.zip")
 
     except Exception as e:
-        st.error(f"เกิดข้อผิดพลาดในการอ่านไฟล์: {e}")
-
-# --- ส่วนท้าย ---
-st.divider()
-st.caption("พัฒนาโดยระบบ Jigsaw Master สำหรับเพจ @Toktagorn")
+        st.error(f"เกิดข้อผิดพลาด: {e}")
