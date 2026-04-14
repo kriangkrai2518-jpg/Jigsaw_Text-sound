@@ -23,9 +23,8 @@ async def generate_voice(text, voice, output_file):
     await communicate.save(output_file)
 
 # --- 3. หน้าตาเว็บ ---
-st.set_page_config(page_title="Toktagorn Audio Editor", page_icon="🎙️", layout="wide")
-st.title("🎙️ ตกตะกอน: Audio Verify & Edit")
-st.write("ตรวจสอบเสียงและแก้ไขก่อนดาวน์โหลดไฟล์ ZIP")
+st.set_page_config(page_title="Toktagorn Auto-Audio", page_icon="🎙️", layout="wide")
+st.title("🎙️ ตกตะกอน: Auto-Batch Generator & Editor")
 
 # เมนูเลือกเสียง
 voice_options = {
@@ -38,81 +37,82 @@ selected_voice = st.selectbox("เลือกเสียงหลัก:", lis
 uploaded_file = st.file_uploader("📂 เลือกไฟล์ Excel หรือ CSV:", type=['xlsx', 'csv'])
 
 if uploaded_file is not None:
-    if 'data_df' not in st.session_state:
+    # โหลดข้อมูลใส่ Session State เพื่อไม่ให้หายเวลา Refresh
+    if 'df' not in st.session_state or st.session_state.get('last_file') != uploaded_file.name:
         if uploaded_file.name.endswith('.csv'):
-            st.session_state.data_df = pd.read_csv(uploaded_file)
+            st.session_state.df = pd.read_csv(uploaded_file)
         else:
-            st.session_state.data_df = pd.read_excel(uploaded_file)
-    
-    df = st.session_state.data_df
+            st.session_state.df = pd.read_excel(uploaded_file)
+        st.session_state.last_file = uploaded_file.name
+        st.session_state.auto_run_done = False # รีเซ็ตสถานะเพื่อให้รันใหม่เมื่อเปลี่ยนไฟล์
+
+    df = st.session_state.df
     all_columns = df.columns.tolist()
     
-    c1, c2 = st.columns(2)
-    with c1:
+    col_sel1, col_sel2 = st.columns(2)
+    with col_sel1:
         name_col = st.selectbox("Column ชื่อไฟล์:", all_columns, index=all_columns.index('Sound Name') if 'Sound Name' in all_columns else 0)
-    with c2:
+    with col_sel2:
         text_col = st.selectbox("Column ข้อความ:", all_columns, index=all_columns.index('text') if 'text' in all_columns else 0)
+
+    # --- 5. ระบบ Auto-Generate (รันอัตโนมัติครั้งแรกที่โหลดไฟล์) ---
+    if not st.session_state.get('auto_run_done', False):
+        progress_text = st.empty()
+        auto_progress = st.progress(0)
+        for i, row in df.iterrows():
+            f_name = str(row[name_col]).strip()
+            f_text = str(row[text_col]).strip()
+            if f_text and f_text != 'nan':
+                output_file = f"{f_name}.mp3"
+                asyncio.run(generate_voice(f_text, voice_options[selected_voice], output_file))
+                st.session_state[f"path_{i}"] = output_file
+            auto_progress.progress((i + 1) / len(df))
+            progress_text.text(f"กำลังเตรียมเสียงอัตโนมัติ: {f_name}")
+        st.session_state.auto_run_done = True
+        progress_text.empty()
+        auto_progress.empty()
+        st.success("✅ เตรียมเสียงเบื้องต้นเสร็จแล้ว! พี่เกรียงตรวจสอบและแก้ไขด้านล่างได้เลย")
 
     st.divider()
 
-    # --- 5. ส่วนตรวจสอบและเจนเสียง (ทีละไฟล์) ---
-    st.subheader("🔍 ตรวจสอบและแก้ไขเสียงทีละรายการ")
+    # --- 6. รายการตรวจสอบและแก้ไข ---
+    st.subheader("🔍 ตรวจสอบและแก้ไขรายรายการ (ถ้าไม่พอใจกดสร้างใหม่ได้)")
     
-    generated_audio_paths = {} # เก็บ path ไฟล์ที่สร้างสำเร็จแล้ว
-
     for i, row in df.iterrows():
         f_name = str(row[name_col]).strip()
         f_text = str(row[text_col]).strip()
         
-        with st.expander(f"📁 ไฟล์: {f_name}.mp3", expanded=True):
-            col_text, col_action, col_audio = st.columns([3, 1, 2])
-            
-            with col_text:
-                new_text = st.text_area(f"ข้อความสำหรับ {f_name}:", value=f_text, key=f"text_{i}", height=70)
-            
-            with col_action:
-                st.write("") # เว้นระยะ
-                if st.button(f"🔊 สร้างเสียง", key=f"btn_{i}"):
+        with st.expander(f"📁 {f_name}.mp3", expanded=False):
+            c1, c2, c3 = st.columns([3, 1, 2])
+            with c1:
+                input_text = st.text_area("ข้อความ:", value=f_text, key=f"input_{i}", height=70)
+            with c2:
+                st.write("")
+                if st.button("🔊 สร้างใหม่", key=f"re_gen_{i}"):
                     output_file = f"{f_name}.mp3"
-                    asyncio.run(generate_voice(new_text, voice_options[selected_voice], output_file))
+                    asyncio.run(generate_voice(input_text, voice_options[selected_voice], output_file))
                     st.session_state[f"path_{i}"] = output_file
-                    st.toast(f"สร้างเสียง {f_name} สำเร็จ!")
-
-            with col_audio:
+                    st.toast(f"อัปเดตเสียง {f_name} แล้ว")
+            with c3:
                 if f"path_{i}" in st.session_state:
                     st.audio(st.session_state[f"path_{i}"])
-                    generated_audio_paths[f_name] = st.session_state[f"path_{i}"]
 
+    # --- 7. ปุ่มรวม ZIP ---
     st.divider()
-
-    # --- 6. ส่วนสุดท้าย: รวมไฟล์ ZIP ---
-    st.subheader("📦 รวมไฟล์ที่ตรวจสอบเสร็จแล้ว")
-    
-    # นับจำนวนไฟล์ที่สร้างเสร็จแล้ว
-    ready_count = len([k for k in st.session_state.keys() if k.startswith("path_")])
-    st.write(f"สร้างเสียงเสร็จแล้ว {ready_count} จาก {len(df)} รายการ")
-
-    if st.button("🎁 กดเพื่อสร้างไฟล์ ZIP สำหรับดาวน์โหลด"):
-        if ready_count > 0:
-            zip_buffer = BytesIO()
-            with zipfile.ZipFile(zip_buffer, "w") as zf:
-                # วนลูปเช็คไฟล์ที่ถูกสร้างไว้ใน session
-                for i in range(len(df)):
-                    path_key = f"path_{i}"
-                    if path_key in st.session_state:
-                        actual_file = st.session_state[path_key]
-                        if os.path.exists(actual_file):
-                            zf.write(actual_file)
+    if st.button("📦 แพ็กไฟล์ทั้งหมดเป็น ZIP"):
+        zip_buffer = BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w") as zf:
+            count = 0
+            for i in range(len(df)):
+                path_key = f"path_{i}"
+                if path_key in st.session_state:
+                    file_path = st.session_state[path_key]
+                    if os.path.exists(file_path):
+                        zf.write(file_path)
+                        count += 1
             
-            st.success("✅ ไฟล์ ZIP พร้อมแล้ว!")
-            st.download_button(
-                label="📥 ดาวน์โหลดไฟล์ ZIP ทั้งหมด",
-                data=zip_buffer.getvalue(),
-                file_name="toktagorn_final_voices.zip",
-                mime="application/zip"
-            )
+        if count > 0:
+            st.success(f"รวมไฟล์เสร็จแล้ว {count} ไฟล์")
+            st.download_button("📥 ดาวน์โหลด ZIP", zip_buffer.getvalue(), "toktagorn_voices.zip")
         else:
-            st.warning("กรุณากดปุ่ม 'สร้างเสียง' ในแต่ละรายการที่ต้องการก่อนครับ")
-
-st.divider()
-st.caption("ระบบตรวจสอบและแก้ไขเสียง โดย Jigsaw Master")
+            st.warning("ยังไม่มีไฟล์เสียงที่ถูกสร้างครับ")
